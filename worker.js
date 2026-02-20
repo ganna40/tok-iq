@@ -686,97 +686,236 @@ function extractStats(messages, partnerFromHeader) {
 }
 
 // ===== 다중지능 측정 엔진 =====
+// tok-wrapped MBTI 방식 채택: 절대 벤치마크 + 그룹 상대 차분 + 시그모이드 매핑
+//
+// 핵심 원리:
+// 1) absScore: 절대 벤치마크 대비 (한국어 채팅 평균 기준) → 기본 점수 60%
+// 2) relScore: 그룹 평균 대비 차분 (tok-wrapped 방식) → 차별화 40%
+// 3) sigmoid 매핑으로 자연스러운 분포 (극단값 억제, 중간값 확대)
+
+// 한국어 채팅 절대 벤치마크 (수천 건 분석 기반 추정치)
+const BENCH = {
+  vocabDiversity: 0.30,      // 일반 채팅 평균 어휘 다양성
+  avgSentenceLength: 12,     // 평균 메시지 길이 (자)
+  connectiveRatio: 0.03,     // 접속사 비율
+  complexityPerMsg: 0.15,    // 종속절 접속사/msg
+  profanityRatio: 0.02,      // 비속어 비율
+  tenseRatio: 0.15,          // 시제 활용 비율
+  tWordRatio: 0.04,          // T 단어 비율
+  causalRatio: 0.02,         // 인과 접속사
+  analyticalExprRatio: 0.005,// 분석 표현
+  numberUnitPerMsg: 0.03,    // 숫자+단위/msg
+  analyticalQRatio: 0.15,    // 분석형 질문 비율 (of questions)
+  linkRatio: 0.03,           // 링크 비율
+  fWordRatio: 0.03,          // F 단어 비율
+  empathyScore: 0.3,         // 공감 점수
+  hedgingRatio: 0.06,        // 완충어 비율
+  interestQRatio: 0.10,      // 관심 질문 비율
+  emojiEmotionRatio: 0.35,   // 감정 이모지 비율
+  questionRatio: 0.08,       // 질문 비율
+  firstMsgRatio: 0.50,       // 먼저 말걸기
+  emotionGranularity: 0.50,  // 감정 세밀도
+  selfReflectRatio: 0.04,    // 자기 성찰
+  emotionSelfRatio: 0.02,    // 감정 자기언급
+  nightEmotionality: 1.0,    // 야간 감정 밀도 비율
+  detailedEmotionRatio: 0.02,// 세밀 감정 비율
+  onomatopoeiaRatio: 0.01,   // 의성어 비율
+  kkkVariance: 3,            // ㅋ 길이 종류
+  tildeRatio: 0.05,          // 물결 비율
+  exclamationMulti: 0.03,    // 느낌표 연속
+  msgLenVariance: 15,        // 메시지 길이 표준편차
+  emojiRatio: 0.15,          // 이모지 비율
+  mediaRatio: 0.08,          // 미디어 비율
+  spatialRatio: 0.01,        // 공간 단어
+  placeRatio: 0.02,          // 장소 단어
+  emoticonRatio: 0.04,       // 이모티콘 비율
+  concreteDetailRatio: 0.03, // 구체적 묘사
+  natureRatio: 0.01,         // 자연 단어
+  foodHealthRatio: 0.02,     // 음식/건강
+  classifyRatio: 0.01,       // 분류 표현
+  factualQRatio: 0.30,       // 사실형 질문 비율
+  existentialRatio: 0.01,    // 실존 단어
+  abstractRatio: 0.02,       // 추상 표현
+  futureTenseRatio: 0.08,    // 미래 시제
+  hypotheticalQRatio: 0.05,  // 가정형 질문
+  philosophicalRatio: 0.003, // 철학 표현
+};
+
 function computeIntelligence(memberStats) {
   const n = memberStats.length || 1;
   const avg = (field) => {
     const vals = memberStats.map(m => m[field] || 0);
     return vals.reduce((a, b) => a + b, 0) / n;
   };
+  // 표준편차
+  const std = (field) => {
+    const a = avg(field);
+    const vals = memberStats.map(m => m[field] || 0);
+    const variance = vals.reduce((s, v) => s + (v - a) ** 2, 0) / n;
+    return Math.sqrt(variance) || 0.001; // 0 방지
+  };
 
   return memberStats.map(ms => {
     const scores = {};
 
-    // 1. 언어 지능 (Linguistic)
-    scores.linguistic = clamp(0, 100,
-      normalize(ms.vocabDiversity, avg('vocabDiversity'), 25) +
-      normalize(ms.avgSentenceLength, avg('avgSentenceLength'), 20) +
-      normalize(ms.connectiveRatio, avg('connectiveRatio'), 20) +
-      normalize(ms.complexityPerMsg, avg('complexityPerMsg'), 15) +
-      (1 - Math.min(1, ms.profanityRatio / Math.max(0.001, avg('profanityRatio')))) * 10 +
-      normalize(ms.pastTenseRatio + ms.futureTenseRatio, avg('pastTenseRatio') + avg('futureTenseRatio'), 10)
-    );
+    // ========== 1. 언어 지능 (Linguistic) ==========
+    // 절대: 어휘 다양성, 문장 길이, 접속사, 복잡도, 시제 → 벤치마크 대비
+    // 상대: 그룹 내 비교로 차별화
+    {
+      let raw = 0;
+      // 절대 점수 (60점 배분)
+      raw += sigmoid(ms.vocabDiversity, BENCH.vocabDiversity, 0.15) * 15;
+      raw += sigmoid(ms.avgSentenceLength, BENCH.avgSentenceLength, 8) * 12;
+      raw += sigmoid(ms.connectiveRatio, BENCH.connectiveRatio, 0.03) * 10;
+      raw += sigmoid(ms.complexityPerMsg, BENCH.complexityPerMsg, 0.12) * 8;
+      raw += (1 - sigmoid(ms.profanityRatio, BENCH.profanityRatio, 0.02)) * 5; // 역상관
+      raw += sigmoid(ms.pastTenseRatio + ms.futureTenseRatio, BENCH.tenseRatio, 0.10) * 10;
+      // 상대 점수 (40점 배분) — tok-wrapped 차분 방식
+      raw += relScore(ms.vocabDiversity, avg('vocabDiversity'), std('vocabDiversity')) * 12;
+      raw += relScore(ms.avgSentenceLength, avg('avgSentenceLength'), std('avgSentenceLength')) * 8;
+      raw += relScore(ms.connectiveRatio, avg('connectiveRatio'), std('connectiveRatio')) * 8;
+      raw += relScore(ms.complexityPerMsg, avg('complexityPerMsg'), std('complexityPerMsg')) * 6;
+      raw += relScore(ms.pastTenseRatio + ms.futureTenseRatio, avg('pastTenseRatio') + avg('futureTenseRatio'), std('pastTenseRatio')) * 6;
+      scores.linguistic = clamp(0, 100, raw);
+    }
 
-    // 2. 논리-수학 (Logical-Mathematical)
-    scores.logical = clamp(0, 100,
-      normalize(ms.tWordRatio, avg('tWordRatio'), 20) +
-      normalize(ms.causalRatio, avg('causalRatio'), 20) +
-      normalize(ms.analyticalExprRatio, avg('analyticalExprRatio'), 15) +
-      normalize(ms.numberUnitCount / Math.max(1, ms.count), avg('numberUnitCount') / Math.max(1, avg('count')), 15) +
-      normalize(ms.analyticalQuestionRatio, avg('analyticalQuestionRatio'), 15) +
-      normalize(ms.linkRatio, avg('linkRatio'), 15)
-    );
+    // ========== 2. 논리-수학 (Logical-Mathematical) ==========
+    {
+      let raw = 0;
+      const nuPerMsg = ms.numberUnitCount / Math.max(1, ms.count);
+      raw += sigmoid(ms.tWordRatio, BENCH.tWordRatio, 0.03) * 12;
+      raw += sigmoid(ms.causalRatio, BENCH.causalRatio, 0.02) * 12;
+      raw += sigmoid(ms.analyticalExprRatio, BENCH.analyticalExprRatio, 0.005) * 8;
+      raw += sigmoid(nuPerMsg, BENCH.numberUnitPerMsg, 0.03) * 10;
+      raw += sigmoid(ms.analyticalQuestionRatio, BENCH.analyticalQRatio, 0.15) * 8;
+      raw += sigmoid(ms.linkRatio, BENCH.linkRatio, 0.03) * 10;
+      // 상대
+      raw += relScore(ms.tWordRatio, avg('tWordRatio'), std('tWordRatio')) * 10;
+      raw += relScore(ms.causalRatio, avg('causalRatio'), std('causalRatio')) * 8;
+      raw += relScore(nuPerMsg, avg('numberUnitCount') / Math.max(1, avg('count')), 0.01) * 8;
+      raw += relScore(ms.analyticalQuestionRatio, avg('analyticalQuestionRatio'), std('analyticalQuestionRatio')) * 7;
+      raw += relScore(ms.linkRatio, avg('linkRatio'), std('linkRatio')) * 7;
+      scores.logical = clamp(0, 100, raw);
+    }
 
-    // 3. 대인관계 (Interpersonal)
-    scores.interpersonal = clamp(0, 100,
-      normalize(Math.max(ms.empathySustainScore, ms.fWordRatio), Math.max(avg('empathySustainScore'), avg('fWordRatio')), 25) +
-      normalize(ms.hedgingSoftenerRatio, avg('hedgingSoftenerRatio'), 15) +
-      normalize(ms.interestQuestionRatio, avg('interestQuestionRatio'), 15) +
-      normalize(ms.emojiEmotionRatio, avg('emojiEmotionRatio'), 15) +
-      normalize(ms.questionRatio, avg('questionRatio'), 15) +
-      (ms.firstMessageRatio > 0.3 ? normalize(ms.firstMessageRatio, 0.5, 15) : 5)
-    );
+    // ========== 3. 대인관계 (Interpersonal) ==========
+    {
+      let raw = 0;
+      const empathy = Math.max(ms.empathySustainScore, ms.empathyResponseScore * 0.5 + 0.5);
+      raw += sigmoid(ms.fWordRatio, BENCH.fWordRatio, 0.03) * 12;
+      raw += sigmoid(empathy, BENCH.empathyScore, 0.3) * 10;
+      raw += sigmoid(ms.hedgingSoftenerRatio, BENCH.hedgingRatio, 0.05) * 8;
+      raw += sigmoid(ms.questionRatio, BENCH.questionRatio, 0.06) * 8;
+      raw += sigmoid(ms.emojiEmotionRatio, BENCH.emojiEmotionRatio, 0.25) * 8;
+      raw += sigmoid(ms.firstMessageRatio, BENCH.firstMsgRatio, 0.25) * 7;
+      raw += sigmoid(ms.interestQuestionRatio, BENCH.interestQRatio, 0.08) * 7;
+      // 상대
+      raw += relScore(ms.fWordRatio, avg('fWordRatio'), std('fWordRatio')) * 10;
+      raw += relScore(empathy, avg('empathySustainScore'), std('empathySustainScore')) * 8;
+      raw += relScore(ms.hedgingSoftenerRatio, avg('hedgingSoftenerRatio'), std('hedgingSoftenerRatio')) * 6;
+      raw += relScore(ms.questionRatio, avg('questionRatio'), std('questionRatio')) * 6;
+      raw += relScore(ms.firstMessageRatio, avg('firstMessageRatio'), std('firstMessageRatio')) * 5;
+      raw += relScore(ms.interestQuestionRatio, avg('interestQuestionRatio'), std('interestQuestionRatio')) * 5;
+      scores.interpersonal = clamp(0, 100, raw);
+    }
 
-    // 4. 자기이해 (Intrapersonal)
-    scores.intrapersonal = clamp(0, 100,
-      normalize(ms.emotionGranularity, avg('emotionGranularity'), 25) +
-      normalize(ms.selfReflectRatio, avg('selfReflectRatio'), 20) +
-      normalize(ms.emotionSelfRatio, avg('emotionSelfRatio'), 15) +
-      normalize(ms.avgLength, avg('avgLength'), 10) +
-      (ms.nightEmotionality > 1.2 ? 15 : ms.nightEmotionality > 1.0 ? 10 : 5) +
-      normalize(ms.detailedEmotionRatio, avg('detailedEmotionRatio'), 15)
-    );
+    // ========== 4. 자기이해 (Intrapersonal) ==========
+    {
+      let raw = 0;
+      raw += sigmoid(ms.emotionGranularity, BENCH.emotionGranularity, 0.3) * 15;
+      raw += sigmoid(ms.selfReflectRatio, BENCH.selfReflectRatio, 0.03) * 12;
+      raw += sigmoid(ms.emotionSelfRatio, BENCH.emotionSelfRatio, 0.02) * 8;
+      raw += sigmoid(ms.detailedEmotionRatio, BENCH.detailedEmotionRatio, 0.02) * 10;
+      raw += sigmoid(ms.avgSentenceLength, BENCH.avgSentenceLength, 8) * 5;
+      // 야간 감정: 절대 기준 (야간에 감정어 많으면 자기이해 높음)
+      if (ms.nightEmotionality > 1.5) raw += 12;
+      else if (ms.nightEmotionality > 1.2) raw += 9;
+      else if (ms.nightEmotionality > 1.0) raw += 6;
+      else raw += 3;
+      // 상대
+      raw += relScore(ms.emotionGranularity, avg('emotionGranularity'), std('emotionGranularity')) * 10;
+      raw += relScore(ms.selfReflectRatio, avg('selfReflectRatio'), std('selfReflectRatio')) * 8;
+      raw += relScore(ms.emotionSelfRatio, avg('emotionSelfRatio'), std('emotionSelfRatio')) * 5;
+      raw += relScore(ms.detailedEmotionRatio, avg('detailedEmotionRatio'), std('detailedEmotionRatio')) * 5;
+      scores.intrapersonal = clamp(0, 100, raw);
+    }
 
-    // 5. 음악-리듬 (Musical-Rhythmic)
-    scores.musical = clamp(0, 100,
-      normalize(ms.onomatopoeiaRatio, avg('onomatopoeiaRatio'), 20) +
-      normalize(ms.kkkLengthVariance, avg('kkkLengthVariance'), 15) +
-      normalize(ms.tildeRatio, avg('tildeRatio'), 15) +
-      normalize(ms.exclamationMultiRatio, avg('exclamationMultiRatio'), 15) +
-      normalize(ms.messageLengthVariance, avg('messageLengthVariance'), 20) +
-      normalize(ms.emojiRatio, avg('emojiRatio'), 15)
-    );
+    // ========== 5. 음악-리듬 (Musical-Rhythmic) ==========
+    {
+      let raw = 0;
+      raw += sigmoid(ms.onomatopoeiaRatio, BENCH.onomatopoeiaRatio, 0.01) * 12;
+      raw += sigmoid(ms.kkkLengthVariance, BENCH.kkkVariance, 2) * 10;
+      raw += sigmoid(ms.tildeRatio, BENCH.tildeRatio, 0.04) * 10;
+      raw += sigmoid(ms.exclamationMultiRatio, BENCH.exclamationMulti, 0.03) * 8;
+      raw += sigmoid(ms.messageLengthVariance, BENCH.msgLenVariance, 12) * 12;
+      raw += sigmoid(ms.emojiRatio, BENCH.emojiRatio, 0.12) * 8;
+      // 상대
+      raw += relScore(ms.onomatopoeiaRatio, avg('onomatopoeiaRatio'), std('onomatopoeiaRatio')) * 8;
+      raw += relScore(ms.kkkLengthVariance, avg('kkkLengthVariance'), std('kkkLengthVariance')) * 6;
+      raw += relScore(ms.tildeRatio, avg('tildeRatio'), std('tildeRatio')) * 6;
+      raw += relScore(ms.messageLengthVariance, avg('messageLengthVariance'), std('messageLengthVariance')) * 8;
+      raw += relScore(ms.emojiRatio, avg('emojiRatio'), std('emojiRatio')) * 6;
+      raw += relScore(ms.exclamationMultiRatio, avg('exclamationMultiRatio'), std('exclamationMultiRatio')) * 6;
+      scores.musical = clamp(0, 100, raw);
+    }
 
-    // 6. 공간-시각 (Visual-Spatial)
-    scores.spatial = clamp(0, 100,
-      normalize(ms.mediaRatio, avg('mediaRatio'), 25) +
-      normalize(ms.spatialRatio, avg('spatialRatio'), 20) +
-      normalize(ms.placeRatio, avg('placeRatio'), 20) +
-      normalize(ms.emoticonRatio, avg('emoticonRatio'), 15) +
-      normalize(ms.linkRatio, avg('linkRatio'), 10) +
-      normalize(ms.concreteDetailRatio, avg('concreteDetailRatio'), 10)
-    );
+    // ========== 6. 공간-시각 (Visual-Spatial) ==========
+    {
+      let raw = 0;
+      raw += sigmoid(ms.mediaRatio, BENCH.mediaRatio, 0.06) * 15;
+      raw += sigmoid(ms.spatialRatio, BENCH.spatialRatio, 0.01) * 10;
+      raw += sigmoid(ms.placeRatio, BENCH.placeRatio, 0.02) * 12;
+      raw += sigmoid(ms.emoticonRatio, BENCH.emoticonRatio, 0.03) * 8;
+      raw += sigmoid(ms.linkRatio, BENCH.linkRatio, 0.03) * 8;
+      raw += sigmoid(ms.concreteDetailRatio, BENCH.concreteDetailRatio, 0.03) * 7;
+      // 상대
+      raw += relScore(ms.mediaRatio, avg('mediaRatio'), std('mediaRatio')) * 10;
+      raw += relScore(ms.spatialRatio, avg('spatialRatio'), std('spatialRatio')) * 8;
+      raw += relScore(ms.placeRatio, avg('placeRatio'), std('placeRatio')) * 8;
+      raw += relScore(ms.emoticonRatio, avg('emoticonRatio'), std('emoticonRatio')) * 7;
+      raw += relScore(ms.concreteDetailRatio, avg('concreteDetailRatio'), std('concreteDetailRatio')) * 7;
+      scores.spatial = clamp(0, 100, raw);
+    }
 
-    // 7. 자연탐구 (Naturalistic)
-    scores.naturalistic = clamp(0, 100,
-      normalize(ms.natureRatio, avg('natureRatio'), 25) +
-      normalize(ms.foodHealthRatio, avg('foodHealthRatio'), 20) +
-      normalize(ms.concreteDetailRatio, avg('concreteDetailRatio'), 20) +
-      normalize(ms.classifyRatio, avg('classifyRatio'), 15) +
-      normalize(ms.factualQuestionRatio, avg('factualQuestionRatio'), 10) +
-      normalize(ms.sWordRatio, avg('sWordRatio'), 10)
-    );
+    // ========== 7. 자연탐구 (Naturalistic) ==========
+    {
+      let raw = 0;
+      raw += sigmoid(ms.natureRatio, BENCH.natureRatio, 0.01) * 15;
+      raw += sigmoid(ms.foodHealthRatio, BENCH.foodHealthRatio, 0.02) * 12;
+      raw += sigmoid(ms.concreteDetailRatio, BENCH.concreteDetailRatio, 0.03) * 10;
+      raw += sigmoid(ms.classifyRatio, BENCH.classifyRatio, 0.01) * 8;
+      raw += sigmoid(ms.factualQuestionRatio, BENCH.factualQRatio, 0.20) * 8;
+      raw += sigmoid(ms.sWordRatio, 0.03, 0.02) * 7;
+      // 상대
+      raw += relScore(ms.natureRatio, avg('natureRatio'), std('natureRatio')) * 10;
+      raw += relScore(ms.foodHealthRatio, avg('foodHealthRatio'), std('foodHealthRatio')) * 8;
+      raw += relScore(ms.concreteDetailRatio, avg('concreteDetailRatio'), std('concreteDetailRatio')) * 6;
+      raw += relScore(ms.classifyRatio, avg('classifyRatio'), std('classifyRatio')) * 6;
+      raw += relScore(ms.factualQuestionRatio, avg('factualQuestionRatio'), std('factualQuestionRatio')) * 5;
+      raw += relScore(ms.sWordRatio, avg('sWordRatio'), std('sWordRatio')) * 5;
+      scores.naturalistic = clamp(0, 100, raw);
+    }
 
-    // 8. 실존 (Existential)
-    scores.existential = clamp(0, 100,
-      normalize(ms.existentialRatio, avg('existentialRatio'), 25) +
-      normalize(ms.abstractImpressionRatio, avg('abstractImpressionRatio'), 20) +
-      normalize(ms.futureTenseRatio, avg('futureTenseRatio'), 15) +
-      normalize(ms.hypotheticalQuestionRatio, avg('hypotheticalQuestionRatio'), 15) +
-      normalize(ms.philosophicalRatio, avg('philosophicalRatio'), 15) +
-      normalize(ms.avgSentenceLength, avg('avgSentenceLength'), 10)
-    );
+    // ========== 8. 실존 (Existential) ==========
+    {
+      let raw = 0;
+      raw += sigmoid(ms.existentialRatio, BENCH.existentialRatio, 0.008) * 15;
+      raw += sigmoid(ms.abstractImpressionRatio, BENCH.abstractRatio, 0.02) * 12;
+      raw += sigmoid(ms.futureTenseRatio, BENCH.futureTenseRatio, 0.06) * 10;
+      raw += sigmoid(ms.hypotheticalQuestionRatio, BENCH.hypotheticalQRatio, 0.05) * 8;
+      raw += sigmoid(ms.philosophicalRatio, BENCH.philosophicalRatio, 0.003) * 10;
+      raw += sigmoid(ms.avgSentenceLength, BENCH.avgSentenceLength, 8) * 5;
+      // 상대
+      raw += relScore(ms.existentialRatio, avg('existentialRatio'), std('existentialRatio')) * 10;
+      raw += relScore(ms.abstractImpressionRatio, avg('abstractImpressionRatio'), std('abstractImpressionRatio')) * 8;
+      raw += relScore(ms.futureTenseRatio, avg('futureTenseRatio'), std('futureTenseRatio')) * 6;
+      raw += relScore(ms.hypotheticalQuestionRatio, avg('hypotheticalQuestionRatio'), std('hypotheticalQuestionRatio')) * 6;
+      raw += relScore(ms.philosophicalRatio, avg('philosophicalRatio'), std('philosophicalRatio')) * 5;
+      raw += relScore(ms.avgSentenceLength, avg('avgSentenceLength'), std('avgSentenceLength')) * 5;
+      scores.existential = clamp(0, 100, raw);
+    }
 
-    // 종합 IQ 계산
+    // ========== 종합 IQ 계산 ==========
     const weighted = (
       scores.linguistic * 1.5 + scores.logical * 1.5 +
       scores.interpersonal * 1.0 + scores.intrapersonal * 1.0 +
@@ -784,15 +923,17 @@ function computeIntelligence(memberStats) {
       scores.naturalistic * 0.8 + scores.existential * 0.8
     ) / 8.2;
 
-    // IQ 매핑 (mean=100, sd=15)
-    const iq = Math.round(70 + (weighted / 100) * 60);
+    // IQ 매핑: weighted 0~100 → IQ 55~145
+    // sigmoid 매핑으로 극단값 방지, 중앙 분포 자연스럽게
+    const iqRaw = 55 + (weighted / 100) * 90;
+    const iq = Math.round(clamp(55, 145, iqRaw));
 
-    // 티어
+    // 티어 (5단계)
     let tier;
     if (iq >= 130) tier = { name: '천재', emoji: '🧠', color: '#fbbf24' };
-    else if (iq >= 120) tier = { name: '수재', emoji: '⚡', color: '#a855f7' };
-    else if (iq >= 110) tier = { name: '우수', emoji: '✨', color: '#00d4ff' };
-    else if (iq >= 90) tier = { name: '보통', emoji: '📊', color: '#22c55e' };
+    else if (iq >= 115) tier = { name: '수재', emoji: '⚡', color: '#a855f7' };
+    else if (iq >= 100) tier = { name: '우수', emoji: '✨', color: '#00d4ff' };
+    else if (iq >= 85) tier = { name: '보통', emoji: '📊', color: '#22c55e' };
     else tier = { name: '분발', emoji: '💤', color: '#ef4444' };
 
     // 강점/약점 영역
@@ -804,10 +945,20 @@ function computeIntelligence(memberStats) {
   });
 }
 
-function normalize(val, groupAvg, maxPoints) {
-  if (groupAvg === 0) return maxPoints * 0.5;
-  const ratio = val / groupAvg;
-  return clamp(0, maxPoints, ratio * maxPoints * 0.5);
+// 시그모이드 매핑: val이 center에 가까울수록 0.5, spread로 기울기 조절
+// 출력: 0~1 (0=매우 낮음, 0.5=벤치마크 수준, 1=매우 높음)
+function sigmoid(val, center, spread) {
+  if (spread === 0) return 0.5;
+  return 1 / (1 + Math.exp(-(val - center) / spread));
+}
+
+// 그룹 상대 점수: (val - groupAvg) / std → -1~+1 범위를 0~maxPoints로 매핑
+// tok-wrapped MBTI 차분 방식: 그룹 평균 대비 높으면 보너스, 낮으면 감점
+function relScore(val, groupAvg, groupStd) {
+  if (groupStd < 0.0001) return 0.5; // 모두 같으면 중립
+  const z = (val - groupAvg) / groupStd; // z-score
+  // z-score를 0~1로 매핑 (tanh로 부드럽게)
+  return (Math.tanh(z * 0.5) + 1) / 2;
 }
 
 function clamp(min, max, val) { return Math.max(min, Math.min(max, val)); }
