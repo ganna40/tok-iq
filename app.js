@@ -6,11 +6,11 @@
 
 // ===== 상수 =====
 const WECHSLER_META = {
-  vci: { name: '언어이해', abbr: 'VCI', icon: '📝', color: '#a855f7', desc: '어휘력, 문장 복잡도, 접속사, 시제 활용' },
-  fri: { name: '유동추론', abbr: 'FRI', icon: '🧩', color: '#3b82f6', desc: '분석적 사고, 인과관계, 논리 연결, 데이터 활용' },
-  wmi: { name: '작업기억', abbr: 'WMI', icon: '🧠', color: '#f43f5e', desc: '주제 유지, 맥락 연결, 복잡한 문장 처리' },
-  psi: { name: '처리속도', abbr: 'PSI', icon: '⚡', color: '#22c55e', desc: '응답 속도, 메시지 빈도, 표현 효율성' },
-  vsi: { name: '시공간',   abbr: 'VSI', icon: '🗺️', color: '#06b6d4', desc: '미디어 공유, 공간 묘사, 시각적 표현' },
+  vci: { name: '언어이해', abbr: 'VCI', icon: '📝', color: '#a855f7', desc: '언어적 개념 형성, 어휘 지식, 언어 추론' },
+  fri: { name: '유동추론', abbr: 'FRI', icon: '🧩', color: '#3b82f6', desc: '패턴 인식, 추상적 추론, 귀납·연역적 사고' },
+  wmi: { name: '작업기억', abbr: 'WMI', icon: '🧠', color: '#f43f5e', desc: '정보 유지·조작, 맥락 기억, 정신적 조작' },
+  psi: { name: '처리속도', abbr: 'PSI', icon: '⚡', color: '#22c55e', desc: '정보 처리 속도, 출력 효율, 반응 민첩성' },
+  vsi: { name: '시공간',   abbr: 'VSI', icon: '🗺️', color: '#06b6d4', desc: '공간 분석, 시각 정보 처리, 심상 조작' },
 };
 const W_KEYS = Object.keys(WECHSLER_META);
 const SITE_URL = location.href.split('?')[0];
@@ -276,17 +276,17 @@ function getIntelDetails(key, ms) {
   switch(key) {
     case 'vci': return [
       { label: '어휘 다양성', value: Math.round(ms.vocabDiversity * 100), max: 100 },
-      { label: '문장 복잡도', value: Math.round(ms.complexityPerMsg * 100), max: 100 },
-      { label: '접속사 활용', value: Math.round(ms.connectiveRatio * 200), max: 100 },
+      { label: '고급 어휘', value: Math.min(100, Math.round((ms.formalWordRatio + ms.advancedVocabRatio) * 300)), max: 100 },
+      { label: '긴 단어 비율', value: Math.round(ms.longWordRatio * 100), max: 100 },
     ];
     case 'fri': return [
-      { label: '분석형 질문', value: Math.round(ms.analyticalQuestionRatio * 100), max: 100 },
-      { label: '인과 표현', value: Math.round(ms.causalRatio * 200), max: 100 },
-      { label: '데이터 활용', value: Math.round(ms.numberRatio * 100), max: 100 },
+      { label: '인과 추론', value: Math.min(100, Math.round(ms.causalRatio * 300)), max: 100 },
+      { label: '조건부 사고', value: Math.min(100, Math.round(ms.conditionalRatio * 300)), max: 100 },
+      { label: '문제 해결', value: Math.min(100, Math.round(ms.problemSolveRatio * 300)), max: 100 },
     ];
     case 'wmi': return [
-      { label: '주제 유지', value: Math.round(ms.topicDriverRatio * 200), max: 100 },
-      { label: '맥락 연결', value: Math.round(ms.connectiveRatio * 200), max: 100 },
+      { label: '맥락 참조', value: Math.min(100, Math.round(ms.contextRefRatio * 300)), max: 100 },
+      { label: '다중절 문장', value: Math.min(100, Math.round(ms.multiClauseRatio * 200)), max: 100 },
       { label: '문장 복잡도', value: Math.round(ms.complexityPerMsg * 100), max: 100 },
     ];
     case 'psi': return [
@@ -683,15 +683,15 @@ function buildEvidence(ms) {
 function getEvidenceText(key, ms) {
   switch(key) {
     case 'vci':
-      return `어휘 다양성 ${Math.round(ms.vocabDiversity * 100)}%, 평균 문장 ${ms.avgLength}자, 접속사 활용도 상위권. 복잡한 문장 구조를 자연스럽게 구사합니다.`;
+      return `어휘 다양성 ${Math.round(ms.vocabDiversity * 100)}%, 고급어 비율 ${Math.round((ms.formalWordRatio + ms.advancedVocabRatio) * 100)}%, 긴 단어 ${Math.round(ms.longWordRatio * 100)}%. 언어적 개념 형성과 단어 지식이 반영됩니다.`;
     case 'fri':
-      return `분석형 질문 ${Math.round(ms.analyticalQuestionRatio * 100)}%, 인과 표현 활발, 숫자/단위 사용이 빈번합니다. 논리적 추론으로 정보를 처리합니다.`;
+      return `인과 추론 ${Math.round(ms.causalRatio * 100)}%, 조건부 사고 ${Math.round(ms.conditionalRatio * 100)}%, 문제해결 ${Math.round(ms.problemSolveRatio * 100)}%. 패턴 인식과 추상적 추론 능력을 보여줍니다.`;
     case 'wmi':
-      return `주제 전환 비율 ${Math.round(ms.topicDriverRatio * 100)}%, 복잡도 ${Math.round(ms.complexityPerMsg * 100)}점. 맥락을 유지하며 복잡한 대화를 처리합니다.`;
+      return `맥락 참조(아까/그때) ${Math.round(ms.contextRefRatio * 100)}%, 다중절 문장 ${Math.round(ms.multiClauseRatio * 100)}%. 이전 정보를 유지하며 복잡한 정보를 조작하는 능력입니다.`;
     case 'psi':
-      return `평균 응답 ${ms.avgResponse > 0 ? Math.round(ms.avgResponse) + '분' : '-'}, 일평균 ${ms.dailyAvg}건. 빠르고 효율적으로 대화를 처리합니다.`;
+      return `평균 응답 ${ms.avgResponse > 0 ? Math.round(ms.avgResponse) + '분' : '-'}, 일평균 ${ms.dailyAvg}건. 정보를 빠르게 처리하고 효율적으로 출력하는 속도입니다.`;
     case 'vsi':
-      return `사진/동영상 ${ms.photoCount + ms.videoCount}건, 공간 묘사 활용, 이모지 ${Math.round(ms.emojiRatio * 100)}%. 시각적 표현을 선호합니다.`;
+      return `사진/동영상 ${ms.photoCount + ms.videoCount}건, 공간어 ${Math.round(ms.spatialRatio * 100)}%, 이모지 ${Math.round(ms.emojiRatio * 100)}%. 공간 정보를 처리하고 시각적으로 사고하는 능력입니다.`;
     default: return '';
   }
 }
