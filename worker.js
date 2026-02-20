@@ -1,6 +1,6 @@
 /* ============================================
-   톡IQ — 카카오톡 다중지능 분석기 Web Worker
-   하워드 가드너 8가지 다중지능 측정
+   톡IQ — 카카오톡 지능 분석기 Web Worker
+   웩슬러(WAIS) 기반 5대 인지지표 측정
    tok-wrapped 파서 + 지능 분석 엔진
    ============================================ */
 
@@ -185,15 +185,13 @@ const LOADING_MESSAGES = [
   { t: 0,  msg: '파일 열어보는 중...' },
   { t: 8,  msg: '대화 내역 읽는 중...' },
   { t: 18, msg: '뇌파 수집 중...' },
-  { t: 28, msg: '언어 지능 분석 중...' },
-  { t: 38, msg: '논리적 사고 측정 중...' },
-  { t: 48, msg: '공감 능력 스캔 중...' },
-  { t: 58, msg: '자기이해력 탐색 중...' },
-  { t: 68, msg: '리듬 패턴 감지 중...' },
-  { t: 78, msg: '공간 인지력 계산 중...' },
-  { t: 85, msg: '자연 탐구력 분석 중...' },
-  { t: 90, msg: '실존 지능 측정 중...' },
-  { t: 95, msg: 'IQ 산출 중...' },
+  { t: 28, msg: '언어 이해력 분석 중...' },
+  { t: 40, msg: '유동 추론력 측정 중...' },
+  { t: 52, msg: '작업 기억력 스캔 중...' },
+  { t: 64, msg: '처리 속도 측정 중...' },
+  { t: 76, msg: '시공간 능력 계산 중...' },
+  { t: 86, msg: '인지 프로필 구성 중...' },
+  { t: 93, msg: 'IQ 산출 중...' },
   { t: 98, msg: '거의 다 됐어요!' },
 ];
 
@@ -297,7 +295,7 @@ self.onmessage = async function(e) {
     self.postMessage({ type: 'progress', percent: 82, message: '통계 계산 중...' });
     const stats = extractStats(messages, partnerFromHeader);
     self.postMessage({ type: 'progress', percent: 92, message: 'IQ 산출 중...' });
-    const results = computeIntelligence(stats.perMemberStats);
+    const results = computeWechsler(stats.perMemberStats);
     stats.perMemberStats = results;
     self.postMessage({ type: 'progress', percent: 100, message: '완료!' });
     self.postMessage({ type: 'complete', stats });
@@ -685,20 +683,23 @@ function extractStats(messages, partnerFromHeader) {
   };
 }
 
-// ===== 다중지능 측정 엔진 =====
-// 그룹 적응형 스코어링 — 고정 벤치마크 없이 실제 데이터 기반
+// ===== 웩슬러(WAIS) 5대 인지지표 측정 엔진 =====
+// 그룹 적응형 스코어링 — 실제 데이터 기반
 //
-// 핵심 원리:
-// 1) S(val, groupAvg): 그룹 평균 대비 비율 → 지수감쇠 매핑 (floor 20%)
-//    - 평균이면 ~70%, 2배면 ~90%, 0이면 ~20%
-// 2) R(val, groupAvg, groupStd): z-score → tanh 매핑 (0~1)
-//    - 그룹 내 상대 위치 차별화
-// 3) 결합: S * 0.6 + R * 0.4 (절대 60% + 상대 40%)
-//    - 평균적인 사람 → 각 차원 ~60점, IQ ~108
-//    - 높은 사람 → ~80점, IQ ~125
-//    - 낮은 사람 → ~40점, IQ ~90
+// 5대 지표:
+// VCI (언어이해) — 어휘력, 문장 복잡도, 접속사, 시제
+// FRI (유동추론) — 분석적 사고, 인과관계, 논리, 데이터
+// WMI (작업기억) — 주제 유지, 맥락 연결, 복잡 문장
+// PSI (처리속도) — 응답 속도, 메시지 빈도, 표현 효율
+// VSI (시공간)   — 미디어, 공간 묘사, 시각적 표현
+//
+// 스코어링:
+// S(val, groupAvg): 절대 점수 (지수감쇠, floor 20%)
+// R(val, groupAvg, groupStd): 상대 점수 (z-score + tanh)
+// raw 0~100 → 웩슬러 지표 55~145 (mean≈100)
+// FSIQ = 5개 지표 균등 평균
 
-function computeIntelligence(memberStats) {
+function computeWechsler(memberStats) {
   const n = memberStats.length || 1;
   const avg = (field) => {
     const vals = memberStats.map(m => m[field] || 0);
@@ -711,9 +712,6 @@ function computeIntelligence(memberStats) {
     return Math.sqrt(variance) || 0.0001;
   };
 
-  // S: 그룹 적응형 절대 점수 (0~maxPts)
-  // val/groupAvg 비율을 지수감쇠로 매핑, floor 20%
-  // r=0→20%, r=0.5→51%, r=1→70%, r=1.5→82%, r=2→89%
   function S(val, groupAvg, maxPts) {
     const ref = Math.max(groupAvg, 0.0001);
     const r = val / ref;
@@ -721,8 +719,6 @@ function computeIntelligence(memberStats) {
     return maxPts * (0.2 + mapped * 0.8);
   }
 
-  // S_inv: 역상관 (비속어 등 낮을수록 좋은 신호)
-  // 비율이 높으면 낮은 점수, 비율 0이면 최고점
   function S_inv(val, groupAvg, maxPts) {
     const ref = Math.max(groupAvg, 0.0001);
     const r = val / ref;
@@ -730,21 +726,32 @@ function computeIntelligence(memberStats) {
     return maxPts * (0.1 + mapped * 0.9);
   }
 
-  // R: 그룹 상대 z-score → 0~maxPts
   function R(val, groupAvg, groupStd, maxPts) {
     if (groupStd < 0.0001) return maxPts * 0.5;
     const z = (val - groupAvg) / groupStd;
     return maxPts * (Math.tanh(z * 0.6) + 1) / 2;
   }
 
+  function R_inv(val, groupAvg, groupStd, maxPts) {
+    if (groupStd < 0.0001) return maxPts * 0.5;
+    const z = (val - groupAvg) / groupStd;
+    return maxPts * (Math.tanh(-z * 0.6) + 1) / 2;
+  }
+
   return memberStats.map(ms => {
-    const scores = {};
+    const raw = {};
     const nuPerMsg = ms.numberUnitCount / Math.max(1, ms.count);
     const nuPerMsgAvg = avg('numberUnitCount') / Math.max(1, avg('count'));
+    const nuPerMsgStd = std('numberUnitCount') / Math.max(1, avg('count'));
+    const wordsPerMsg = ms.totalWords / Math.max(1, ms.count);
+    const wordsPerMsgAvg = avg('totalWords') / Math.max(1, avg('count'));
+    const wordsPerMsgStd = std('totalWords') / Math.max(1, avg('count'));
     const empathy = Math.max(ms.empathySustainScore, ms.empathyResponseScore * 0.5 + 0.5);
+    const myResp = ms.avgResponse > 0 ? ms.avgResponse : avg('avgResponse');
 
-    // ========== 1. 언어 지능 (Linguistic) ==========
-    scores.linguistic = clamp(0, 100,
+    // ===== VCI: 언어이해 (Verbal Comprehension) =====
+    // 어휘 다양성, 문장 복잡도, 접속사, 시제, 추상어
+    raw.vci = clamp(0, 100,
       S(ms.vocabDiversity, avg('vocabDiversity'), 14) +
       S(ms.avgSentenceLength, avg('avgSentenceLength'), 10) +
       S(ms.connectiveRatio, avg('connectiveRatio'), 10) +
@@ -755,11 +762,12 @@ function computeIntelligence(memberStats) {
       R(ms.avgSentenceLength, avg('avgSentenceLength'), std('avgSentenceLength'), 8) +
       R(ms.connectiveRatio, avg('connectiveRatio'), std('connectiveRatio'), 8) +
       R(ms.complexityPerMsg, avg('complexityPerMsg'), std('complexityPerMsg'), 8) +
-      R(ms.pastTenseRatio + ms.futureTenseRatio, avg('pastTenseRatio') + avg('futureTenseRatio'), std('pastTenseRatio'), 6)
+      R(ms.abstractImpressionRatio, avg('abstractImpressionRatio'), std('abstractImpressionRatio'), 8)
     );
 
-    // ========== 2. 논리-수학 (Logical-Mathematical) ==========
-    scores.logical = clamp(0, 100,
+    // ===== FRI: 유동추론 (Fluid Reasoning) =====
+    // 분석적 사고, 인과관계, 논리 연결, 데이터/숫자
+    raw.fri = clamp(0, 100,
       S(ms.tWordRatio, avg('tWordRatio'), 12) +
       S(ms.causalRatio, avg('causalRatio'), 10) +
       S(ms.analyticalExprRatio, avg('analyticalExprRatio'), 8) +
@@ -768,137 +776,89 @@ function computeIntelligence(memberStats) {
       S(ms.linkRatio, avg('linkRatio'), 8) +
       R(ms.tWordRatio, avg('tWordRatio'), std('tWordRatio'), 10) +
       R(ms.causalRatio, avg('causalRatio'), std('causalRatio'), 8) +
-      R(nuPerMsg, nuPerMsgAvg, std('numberUnitCount') / Math.max(1, avg('count')), 8) +
+      R(nuPerMsg, nuPerMsgAvg, nuPerMsgStd, 8) +
       R(ms.analyticalQuestionRatio, avg('analyticalQuestionRatio'), std('analyticalQuestionRatio'), 8) +
-      R(ms.linkRatio, avg('linkRatio'), std('linkRatio'), 6)
+      R(ms.hypotheticalQuestionRatio, avg('hypotheticalQuestionRatio'), std('hypotheticalQuestionRatio'), 6) +
+      R(ms.linkRatio, avg('linkRatio'), std('linkRatio'), 4)
     );
 
-    // ========== 3. 대인관계 (Interpersonal) ==========
-    scores.interpersonal = clamp(0, 100,
-      S(ms.fWordRatio, avg('fWordRatio'), 10) +
-      S(empathy, avg('empathySustainScore'), 10) +
+    // ===== WMI: 작업기억 (Working Memory) =====
+    // 주제 유지, 맥락 연결, 복잡 문장 처리, 공감 유지
+    raw.wmi = clamp(0, 100,
+      S(ms.topicDriverRatio, avg('topicDriverRatio'), 12) +
+      S(ms.complexityPerMsg, avg('complexityPerMsg'), 10) +
+      S(ms.avgSentenceLength, avg('avgSentenceLength'), 10) +
+      S(empathy, avg('empathySustainScore'), 8) +
+      S(ms.connectiveRatio, avg('connectiveRatio'), 8) +
       S(ms.hedgingSoftenerRatio, avg('hedgingSoftenerRatio'), 8) +
-      S(ms.questionRatio, avg('questionRatio'), 8) +
-      S(ms.emojiEmotionRatio, avg('emojiEmotionRatio'), 8) +
-      S(ms.firstMessageRatio, avg('firstMessageRatio'), 6) +
-      S(ms.interestQuestionRatio, avg('interestQuestionRatio'), 6) +
-      R(ms.fWordRatio, avg('fWordRatio'), std('fWordRatio'), 10) +
+      R(ms.topicDriverRatio, avg('topicDriverRatio'), std('topicDriverRatio'), 10) +
+      R(ms.complexityPerMsg, avg('complexityPerMsg'), std('complexityPerMsg'), 8) +
+      R(ms.avgSentenceLength, avg('avgSentenceLength'), std('avgSentenceLength'), 8) +
       R(empathy, avg('empathySustainScore'), std('empathySustainScore'), 8) +
-      R(ms.hedgingSoftenerRatio, avg('hedgingSoftenerRatio'), std('hedgingSoftenerRatio'), 6) +
-      R(ms.questionRatio, avg('questionRatio'), std('questionRatio'), 6) +
-      R(ms.firstMessageRatio, avg('firstMessageRatio'), std('firstMessageRatio'), 5) +
-      R(ms.interestQuestionRatio, avg('interestQuestionRatio'), std('interestQuestionRatio'), 5)
+      R(ms.connectiveRatio, avg('connectiveRatio'), std('connectiveRatio'), 5) +
+      R(ms.hedgingSoftenerRatio, avg('hedgingSoftenerRatio'), std('hedgingSoftenerRatio'), 5)
     );
 
-    // ========== 4. 자기이해 (Intrapersonal) ==========
-    {
-      let raw =
-        S(ms.emotionGranularity, avg('emotionGranularity'), 12) +
-        S(ms.selfReflectRatio, avg('selfReflectRatio'), 10) +
-        S(ms.emotionSelfRatio, avg('emotionSelfRatio'), 8) +
-        S(ms.detailedEmotionRatio, avg('detailedEmotionRatio'), 8) +
-        S(ms.avgSentenceLength, avg('avgSentenceLength'), 5);
-      // 야간 감정: 절대 기준
-      if (ms.nightEmotionality > 1.5) raw += 10;
-      else if (ms.nightEmotionality > 1.2) raw += 8;
-      else if (ms.nightEmotionality > 1.0) raw += 6;
-      else raw += 3;
-      raw +=
-        R(ms.emotionGranularity, avg('emotionGranularity'), std('emotionGranularity'), 10) +
-        R(ms.selfReflectRatio, avg('selfReflectRatio'), std('selfReflectRatio'), 8) +
-        R(ms.emotionSelfRatio, avg('emotionSelfRatio'), std('emotionSelfRatio'), 7) +
-        R(ms.detailedEmotionRatio, avg('detailedEmotionRatio'), std('detailedEmotionRatio'), 7);
-      scores.intrapersonal = clamp(0, 100, raw);
-    }
-
-    // ========== 5. 음악-리듬 (Musical-Rhythmic) ==========
-    scores.musical = clamp(0, 100,
-      S(ms.onomatopoeiaRatio, avg('onomatopoeiaRatio'), 10) +
-      S(ms.kkkLengthVariance, avg('kkkLengthVariance'), 10) +
-      S(ms.tildeRatio, avg('tildeRatio'), 10) +
-      S(ms.exclamationMultiRatio, avg('exclamationMultiRatio'), 8) +
-      S(ms.messageLengthVariance, avg('messageLengthVariance'), 10) +
-      S(ms.emojiRatio, avg('emojiRatio'), 8) +
-      R(ms.onomatopoeiaRatio, avg('onomatopoeiaRatio'), std('onomatopoeiaRatio'), 8) +
-      R(ms.kkkLengthVariance, avg('kkkLengthVariance'), std('kkkLengthVariance'), 7) +
-      R(ms.tildeRatio, avg('tildeRatio'), std('tildeRatio'), 7) +
-      R(ms.messageLengthVariance, avg('messageLengthVariance'), std('messageLengthVariance'), 7) +
-      R(ms.emojiRatio, avg('emojiRatio'), std('emojiRatio'), 6) +
-      R(ms.exclamationMultiRatio, avg('exclamationMultiRatio'), std('exclamationMultiRatio'), 6)
+    // ===== PSI: 처리속도 (Processing Speed) =====
+    // 응답 속도(역), 메시지 빈도, 표현 효율, 총 볼륨
+    raw.psi = clamp(0, 100,
+      S_inv(myResp, avg('avgResponse'), 14) +
+      S(ms.dailyAvg, avg('dailyAvg'), 12) +
+      S(wordsPerMsg, wordsPerMsgAvg, 10) +
+      S_inv(ms.singleCharRatio, avg('singleCharRatio'), 10) +
+      S(ms.count, avg('count'), 10) +
+      R_inv(myResp, avg('avgResponse'), std('avgResponse'), 10) +
+      R(ms.dailyAvg, avg('dailyAvg'), std('dailyAvg'), 8) +
+      R(wordsPerMsg, wordsPerMsgAvg, wordsPerMsgStd, 8) +
+      R_inv(ms.singleCharRatio, avg('singleCharRatio'), std('singleCharRatio'), 8) +
+      R(ms.count, avg('count'), std('count'), 10)
     );
 
-    // ========== 6. 공간-시각 (Visual-Spatial) ==========
-    scores.spatial = clamp(0, 100,
+    // ===== VSI: 시공간 (Visual-Spatial) =====
+    // 미디어 공유, 공간 묘사, 장소, 이모지/이모티콘
+    raw.vsi = clamp(0, 100,
       S(ms.mediaRatio, avg('mediaRatio'), 14) +
       S(ms.spatialRatio, avg('spatialRatio'), 10) +
       S(ms.placeRatio, avg('placeRatio'), 10) +
       S(ms.emoticonRatio, avg('emoticonRatio'), 8) +
-      S(ms.linkRatio, avg('linkRatio'), 7) +
-      S(ms.concreteDetailRatio, avg('concreteDetailRatio'), 7) +
+      S(ms.concreteDetailRatio, avg('concreteDetailRatio'), 8) +
+      S(ms.emojiRatio, avg('emojiRatio'), 6) +
       R(ms.mediaRatio, avg('mediaRatio'), std('mediaRatio'), 10) +
       R(ms.spatialRatio, avg('spatialRatio'), std('spatialRatio'), 8) +
       R(ms.placeRatio, avg('placeRatio'), std('placeRatio'), 8) +
-      R(ms.emoticonRatio, avg('emoticonRatio'), std('emoticonRatio'), 7) +
-      R(ms.concreteDetailRatio, avg('concreteDetailRatio'), std('concreteDetailRatio'), 7)
+      R(ms.emoticonRatio, avg('emoticonRatio'), std('emoticonRatio'), 6) +
+      R(ms.concreteDetailRatio, avg('concreteDetailRatio'), std('concreteDetailRatio'), 6) +
+      R(ms.emojiRatio, avg('emojiRatio'), std('emojiRatio'), 6)
     );
 
-    // ========== 7. 자연탐구 (Naturalistic) ==========
-    scores.naturalistic = clamp(0, 100,
-      S(ms.natureRatio, avg('natureRatio'), 14) +
-      S(ms.foodHealthRatio, avg('foodHealthRatio'), 10) +
-      S(ms.concreteDetailRatio, avg('concreteDetailRatio'), 10) +
-      S(ms.classifyRatio, avg('classifyRatio'), 8) +
-      S(ms.factualQuestionRatio, avg('factualQuestionRatio'), 7) +
-      S(ms.sWordRatio, avg('sWordRatio'), 7) +
-      R(ms.natureRatio, avg('natureRatio'), std('natureRatio'), 10) +
-      R(ms.foodHealthRatio, avg('foodHealthRatio'), std('foodHealthRatio'), 8) +
-      R(ms.concreteDetailRatio, avg('concreteDetailRatio'), std('concreteDetailRatio'), 7) +
-      R(ms.classifyRatio, avg('classifyRatio'), std('classifyRatio'), 6) +
-      R(ms.factualQuestionRatio, avg('factualQuestionRatio'), std('factualQuestionRatio'), 6) +
-      R(ms.sWordRatio, avg('sWordRatio'), std('sWordRatio'), 5)
+    // ===== 웩슬러 지표 점수 변환 =====
+    // raw 0~100 → Index 55~145 (평균 raw ~65 → Index ~102)
+    const indices = {};
+    for (const key of ['vci','fri','wmi','psi','vsi']) {
+      indices[key] = Math.round(clamp(55, 145, 40 + raw[key] * 0.95));
+    }
+
+    // FSIQ = 5개 지표 균등 평균
+    const fsiq = Math.round(
+      (indices.vci + indices.fri + indices.wmi + indices.psi + indices.vsi) / 5
     );
+    const iq = clamp(55, 145, fsiq);
 
-    // ========== 8. 실존 (Existential) ==========
-    scores.existential = clamp(0, 100,
-      S(ms.existentialRatio, avg('existentialRatio'), 14) +
-      S(ms.abstractImpressionRatio, avg('abstractImpressionRatio'), 10) +
-      S(ms.futureTenseRatio, avg('futureTenseRatio'), 10) +
-      S(ms.hypotheticalQuestionRatio, avg('hypotheticalQuestionRatio'), 8) +
-      S(ms.philosophicalRatio, avg('philosophicalRatio'), 8) +
-      S(ms.avgSentenceLength, avg('avgSentenceLength'), 6) +
-      R(ms.existentialRatio, avg('existentialRatio'), std('existentialRatio'), 10) +
-      R(ms.abstractImpressionRatio, avg('abstractImpressionRatio'), std('abstractImpressionRatio'), 8) +
-      R(ms.futureTenseRatio, avg('futureTenseRatio'), std('futureTenseRatio'), 7) +
-      R(ms.hypotheticalQuestionRatio, avg('hypotheticalQuestionRatio'), std('hypotheticalQuestionRatio'), 6) +
-      R(ms.philosophicalRatio, avg('philosophicalRatio'), std('philosophicalRatio'), 6) +
-      R(ms.avgSentenceLength, avg('avgSentenceLength'), std('avgSentenceLength'), 5)
-    );
-
-    // ========== 종합 IQ 계산 ==========
-    const weighted = (
-      scores.linguistic * 1.5 + scores.logical * 1.5 +
-      scores.interpersonal * 1.0 + scores.intrapersonal * 1.0 +
-      scores.musical * 0.8 + scores.spatial * 0.8 +
-      scores.naturalistic * 0.8 + scores.existential * 0.8
-    ) / 8.2;
-
-    // IQ: weighted 40~80 → IQ 85~135 (일반 사용자 대부분 100~120 범위)
-    const iq = Math.round(clamp(55, 145, 40 + weighted * 1.3));
-
-    // 티어
+    // 티어 (웩슬러 분류 기반)
     let tier;
-    if (iq >= 130) tier = { name: '천재', emoji: '🧠', color: '#fbbf24' };
-    else if (iq >= 115) tier = { name: '수재', emoji: '⚡', color: '#a855f7' };
-    else if (iq >= 100) tier = { name: '우수', emoji: '✨', color: '#00d4ff' };
-    else if (iq >= 85) tier = { name: '보통', emoji: '📊', color: '#22c55e' };
-    else tier = { name: '분발', emoji: '💤', color: '#ef4444' };
+    if (iq >= 130) tier = { name: '최우수', emoji: '🧠', color: '#fbbf24' };
+    else if (iq >= 120) tier = { name: '우수', emoji: '⚡', color: '#a855f7' };
+    else if (iq >= 110) tier = { name: '평균 상', emoji: '✨', color: '#00d4ff' };
+    else if (iq >= 100) tier = { name: '평균', emoji: '📊', color: '#22c55e' };
+    else if (iq >= 90) tier = { name: '평균 하', emoji: '💪', color: '#f59e0b' };
+    else tier = { name: '경계', emoji: '💤', color: '#ef4444' };
 
-    // 강점/약점 영역
-    const sortedScores = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-    const strengths = sortedScores.slice(0, 2).map(s => s[0]);
-    const weaknesses = sortedScores.slice(-2).map(s => s[0]);
+    // 강점/약점
+    const sorted = Object.entries(indices).sort((a, b) => b[1] - a[1]);
+    const strengths = sorted.slice(0, 2).map(s => s[0]);
+    const weaknesses = sorted.slice(-2).map(s => s[0]);
 
-    return { ...ms, intelligence: scores, iq, tier, strengths, weaknesses };
+    return { ...ms, rawScores: raw, intelligence: indices, iq, tier, strengths, weaknesses };
   });
 }
 

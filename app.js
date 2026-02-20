@@ -1,20 +1,18 @@
 /* ============================================
    톡IQ — app.js
-   UI 로직, 10장 카드, SVG 차트, 공유, 정밀분석
+   웩슬러(WAIS) 5대 인지지표 UI
+   펜타곤 차트, 카드 시스템, 공유, 정밀분석
    ============================================ */
 
 // ===== 상수 =====
-const INTEL_META = {
-  linguistic:     { name: '언어',     icon: '📝', color: '#a855f7', desc: '어휘력, 문장 복잡도, 접속사 활용, 시제 다양성' },
-  logical:        { name: '논리-수학', icon: '🔢', color: '#3b82f6', desc: '분석적 사고, 인과관계 표현, 숫자/데이터 활용' },
-  interpersonal:  { name: '대인관계', icon: '🤝', color: '#f43f5e', desc: '공감 반응, 관심 질문, 감정 표현, 대화 주도' },
-  intrapersonal:  { name: '자기이해', icon: '🪞', color: '#22c55e', desc: '감정 세밀도, 자기 성찰, 야간 감정 밀도' },
-  musical:        { name: '음악-리듬', icon: '🎵', color: '#f59e0b', desc: '의성어, ㅋ 패턴, 물결 표현, 텍스트 리듬감' },
-  spatial:        { name: '공간-시각', icon: '🗺️', color: '#06b6d4', desc: '사진/동영상 공유, 공간 묘사, 장소 언급' },
-  naturalistic:   { name: '자연탐구', icon: '🌿', color: '#84cc16', desc: '자연/날씨 관심, 음식/건강, 관찰력, 분류' },
-  existential:    { name: '실존',     icon: '💫', color: '#8b5cf6', desc: '추상적 사고, 미래 지향, 가치관, 철학적 표현' },
+const WECHSLER_META = {
+  vci: { name: '언어이해', abbr: 'VCI', icon: '📝', color: '#a855f7', desc: '어휘력, 문장 복잡도, 접속사, 시제 활용' },
+  fri: { name: '유동추론', abbr: 'FRI', icon: '🧩', color: '#3b82f6', desc: '분석적 사고, 인과관계, 논리 연결, 데이터 활용' },
+  wmi: { name: '작업기억', abbr: 'WMI', icon: '🧠', color: '#f43f5e', desc: '주제 유지, 맥락 연결, 복잡한 문장 처리' },
+  psi: { name: '처리속도', abbr: 'PSI', icon: '⚡', color: '#22c55e', desc: '응답 속도, 메시지 빈도, 표현 효율성' },
+  vsi: { name: '시공간',   abbr: 'VSI', icon: '🗺️', color: '#06b6d4', desc: '미디어 공유, 공간 묘사, 시각적 표현' },
 };
-const INTEL_KEYS = Object.keys(INTEL_META);
+const W_KEYS = Object.keys(WECHSLER_META);
 const SITE_URL = location.href.split('?')[0];
 
 let worker = null;
@@ -109,6 +107,16 @@ function confirmPicker() {
   buildAndShowCards();
 }
 
+// ===== 웩슬러 분류 =====
+function indexInterpretation(score) {
+  if (score >= 130) return '최우수 (Very Superior)';
+  if (score >= 120) return '우수 (Superior)';
+  if (score >= 110) return '평균 상 (High Average)';
+  if (score >= 90) return '평균 (Average)';
+  if (score >= 80) return '평균 하 (Low Average)';
+  return '경계 (Borderline)';
+}
+
 // ===== 카드 빌드 =====
 function buildAndShowCards() {
   const ms = selectedMember;
@@ -133,38 +141,16 @@ function buildAndShowCards() {
     </div>
   `));
 
-  // Card 2: 언어 지능
-  cards.push(buildIntelCard(2, 'linguistic', ms));
+  // Card 2~6: 5대 인지지표
+  W_KEYS.forEach((key, i) => {
+    cards.push(buildIntelCard(i + 2, key, ms));
+  });
 
-  // Card 3: 논리-수학
-  cards.push(buildIntelCard(3, 'logical', ms));
-
-  // Card 4: 대인관계
-  cards.push(buildIntelCard(4, 'interpersonal', ms));
-
-  // Card 5: 자기이해
-  cards.push(buildIntelCard(5, 'intrapersonal', ms));
-
-  // Card 6: 4개 지능 한번에
-  cards.push(buildCard(6, `
-    <div class="card-label">MULTI-INTELLIGENCE</div>
-    <div class="card-title">나머지 4개 지능</div>
-    <div class="mini-grid">
-      ${['musical','spatial','naturalistic','existential'].map(key => `
-        <div class="mini-card">
-          <div class="mini-icon">${INTEL_META[key].icon}</div>
-          <div class="mini-name">${INTEL_META[key].name}</div>
-          <div class="mini-score" style="color:${INTEL_META[key].color}" data-count="${Math.round(s[key])}">${Math.round(s[key])}</div>
-        </div>
-      `).join('')}
-    </div>
-  `));
-
-  // Card 7: 레이더 차트
+  // Card 7: 펜타곤 레이더
   cards.push(buildCard(7, `
-    <div class="card-label">INTELLIGENCE PROFILE</div>
-    <div class="card-title">8축 다중지능 프로필</div>
-    <div class="radar-wrap">${buildRadar8SVG(s)}</div>
+    <div class="card-label">COGNITIVE PROFILE</div>
+    <div class="card-title">5대 인지 프로필</div>
+    <div class="radar-wrap">${buildRadarSVG(ms)}</div>
   `));
 
   // Card 8: IQ 공개
@@ -176,8 +162,8 @@ function buildAndShowCards() {
       ${ms.tier.emoji} ${ms.tier.name}
     </div>
     <div class="card-desc">
-      강점: ${ms.strengths.map(k => INTEL_META[k].icon + ' ' + INTEL_META[k].name).join(', ')}<br>
-      약점: ${ms.weaknesses.map(k => INTEL_META[k].icon + ' ' + INTEL_META[k].name).join(', ')}
+      강점: ${ms.strengths.map(k => WECHSLER_META[k].icon + ' ' + WECHSLER_META[k].name).join(', ')}<br>
+      약점: ${ms.weaknesses.map(k => WECHSLER_META[k].icon + ' ' + WECHSLER_META[k].name).join(', ')}
     </div>
   `));
 
@@ -200,13 +186,13 @@ function buildAndShowCards() {
     `));
   } else {
     cards.push(buildCard(9, `
-      <div class="card-label">YOUR STATS</div>
-      <div class="card-title">핵심 지표</div>
+      <div class="card-label">INDEX SCORES</div>
+      <div class="card-title">인지지표 점수</div>
       <div class="bar-group">
-        ${buildBarHTML('어휘 다양성', Math.round(ms.vocabDiversity * 100), 100, '#a855f7')}
-        ${buildBarHTML('감정 세밀도', Math.round(ms.emotionGranularity * 100), 100, '#f43f5e')}
-        ${buildBarHTML('논리적 사고', Math.round(ms.tWordRatio * 500), 100, '#3b82f6')}
-        ${buildBarHTML('공감 반응', Math.round(ms.fWordRatio * 500), 100, '#22c55e')}
+        ${W_KEYS.map(k => {
+          const pct = Math.round((s[k] - 55) / 90 * 100);
+          return buildBarHTML(WECHSLER_META[k].name, s[k], 145, WECHSLER_META[k].color, pct);
+        }).join('')}
       </div>
     `));
   }
@@ -259,14 +245,16 @@ function buildCard(num, inner) {
 }
 
 function buildIntelCard(num, key, ms) {
-  const meta = INTEL_META[key];
-  const score = Math.round(ms.intelligence[key]);
+  const meta = WECHSLER_META[key];
+  const indexScore = ms.intelligence[key];
+  const interp = indexInterpretation(indexScore);
   const details = getIntelDetails(key, ms);
   return buildCard(num, `
-    <div class="card-label">${meta.name.toUpperCase()} INTELLIGENCE</div>
+    <div class="card-label">${meta.abbr} · ${meta.name.toUpperCase()}</div>
     <div class="card-icon">${meta.icon}</div>
-    <div class="card-title">${meta.name} 지능</div>
-    <div class="card-score" style="color:${meta.color}" data-count="${score}">${score}</div>
+    <div class="card-title">${meta.name}</div>
+    <div class="card-score" style="color:${meta.color}" data-count="${indexScore}">${indexScore}</div>
+    <div class="card-interp" style="color:${meta.color}">${interp}</div>
     <div class="bar-group">
       ${details.map(d => buildBarHTML(d.label, d.value, d.max, meta.color)).join('')}
     </div>
@@ -274,8 +262,8 @@ function buildIntelCard(num, key, ms) {
   `);
 }
 
-function buildBarHTML(label, value, max, color) {
-  const pct = Math.min(100, Math.round(value / max * 100));
+function buildBarHTML(label, value, max, color, overridePct) {
+  const pct = overridePct != null ? overridePct : Math.min(100, Math.round(value / max * 100));
   return `
     <div class="bar-item">
       <span class="bar-label">${label}</span>
@@ -286,34 +274,39 @@ function buildBarHTML(label, value, max, color) {
 
 function getIntelDetails(key, ms) {
   switch(key) {
-    case 'linguistic': return [
+    case 'vci': return [
       { label: '어휘 다양성', value: Math.round(ms.vocabDiversity * 100), max: 100 },
       { label: '문장 복잡도', value: Math.round(ms.complexityPerMsg * 100), max: 100 },
       { label: '접속사 활용', value: Math.round(ms.connectiveRatio * 200), max: 100 },
     ];
-    case 'logical': return [
+    case 'fri': return [
       { label: '분석형 질문', value: Math.round(ms.analyticalQuestionRatio * 100), max: 100 },
       { label: '인과 표현', value: Math.round(ms.causalRatio * 200), max: 100 },
-      { label: '숫자/데이터', value: Math.round(ms.numberRatio * 100), max: 100 },
+      { label: '데이터 활용', value: Math.round(ms.numberRatio * 100), max: 100 },
     ];
-    case 'interpersonal': return [
-      { label: '공감 반응', value: Math.round((ms.empathyResponseScore + 1) * 50), max: 100 },
-      { label: '관심 질문', value: Math.round(ms.interestQuestionRatio * 100), max: 100 },
-      { label: '대화 주도', value: Math.round(ms.firstMessageRatio * 100), max: 100 },
+    case 'wmi': return [
+      { label: '주제 유지', value: Math.round(ms.topicDriverRatio * 200), max: 100 },
+      { label: '맥락 연결', value: Math.round(ms.connectiveRatio * 200), max: 100 },
+      { label: '문장 복잡도', value: Math.round(ms.complexityPerMsg * 100), max: 100 },
     ];
-    case 'intrapersonal': return [
-      { label: '감정 세밀도', value: Math.round(ms.emotionGranularity * 100), max: 100 },
-      { label: '자기 성찰', value: Math.round(ms.selfReflectRatio * 200), max: 100 },
-      { label: '야간 감정', value: Math.round(ms.nightEmotionality * 50), max: 100 },
+    case 'psi': return [
+      { label: '응답 속도', value: Math.max(0, Math.round(100 - ms.avgResponse * 2)), max: 100 },
+      { label: '일평균 메시지', value: Math.min(100, ms.dailyAvg), max: 100 },
+      { label: '표현 효율', value: Math.min(100, Math.round(ms.avgLength / 2)), max: 100 },
+    ];
+    case 'vsi': return [
+      { label: '미디어 공유', value: Math.min(100, Math.round(ms.mediaRatio * 200)), max: 100 },
+      { label: '공간 묘사', value: Math.min(100, Math.round(ms.spatialRatio * 300)), max: 100 },
+      { label: '이모지 활용', value: Math.min(100, Math.round(ms.emojiRatio * 100)), max: 100 },
     ];
     default: return [];
   }
 }
 
-// ===== SVG 레이더 차트 =====
-function buildRadar8SVG(scores, size = 280) {
-  const cx = size / 2, cy = size / 2, r = size * 0.38;
-  const n = 8;
+// ===== SVG 펜타곤 레이더 차트 =====
+function buildRadarSVG(ms, size = 280) {
+  const cx = size / 2, cy = size / 2, r = size * 0.36;
+  const n = 5;
   const angleStep = (2 * Math.PI) / n;
   const startAngle = -Math.PI / 2;
 
@@ -335,22 +328,25 @@ function buildRadar8SVG(scores, size = 280) {
     axisLines += `<line x1="${cx}" y1="${cy}" x2="${cx + r * Math.cos(a)}" y2="${cy + r * Math.sin(a)}" stroke="rgba(255,255,255,.06)" stroke-width="1"/>`;
   }
 
-  // Data polygon
-  const vals = INTEL_KEYS.map(k => (scores[k] || 0) / 100);
+  // Data polygon (use rawScores 0~100 for shape)
+  const rawScores = ms.rawScores || {};
+  const vals = W_KEYS.map(k => (rawScores[k] || 50) / 100);
   let dataPts = '';
   vals.forEach((v, i) => {
     const a = startAngle + i * angleStep;
     dataPts += `${cx + r * v * Math.cos(a)},${cy + r * v * Math.sin(a)} `;
   });
 
-  // Labels
+  // Labels with Wechsler index scores
   let labels = '';
-  INTEL_KEYS.forEach((k, i) => {
+  W_KEYS.forEach((k, i) => {
     const a = startAngle + i * angleStep;
-    const lx = cx + (r + 24) * Math.cos(a);
-    const ly = cy + (r + 24) * Math.sin(a);
+    const lx = cx + (r + 30) * Math.cos(a);
+    const ly = cy + (r + 30) * Math.sin(a);
     const anchor = Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end';
-    labels += `<text x="${lx}" y="${ly}" text-anchor="${anchor}" dominant-baseline="central" fill="#94a3b8" font-size="11" font-weight="600">${INTEL_META[k].icon} ${INTEL_META[k].name}</text>`;
+    const indexScore = ms.intelligence[k] || 100;
+    labels += `<text x="${lx}" y="${ly - 8}" text-anchor="${anchor}" dominant-baseline="central" fill="${WECHSLER_META[k].color}" font-size="12" font-weight="700">${WECHSLER_META[k].icon} ${WECHSLER_META[k].name}</text>`;
+    labels += `<text x="${lx}" y="${ly + 8}" text-anchor="${anchor}" dominant-baseline="central" fill="#94a3b8" font-size="11" font-weight="600">${indexScore}</text>`;
   });
 
   // Dots
@@ -359,12 +355,12 @@ function buildRadar8SVG(scores, size = 280) {
     const a = startAngle + i * angleStep;
     const dx = cx + r * v * Math.cos(a);
     const dy = cy + r * v * Math.sin(a);
-    dots += `<circle cx="${dx}" cy="${dy}" r="4" fill="${INTEL_META[INTEL_KEYS[i]].color}" stroke="#fff" stroke-width="1.5"/>`;
+    dots += `<circle cx="${dx}" cy="${dy}" r="5" fill="${WECHSLER_META[W_KEYS[i]].color}" stroke="#fff" stroke-width="1.5"/>`;
   });
 
   return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
     ${gridLines}${axisLines}
-    <polygon points="${dataPts}" fill="rgba(0,212,255,.15)" stroke="var(--cyan)" stroke-width="2" stroke-linejoin="round" class="radar-data"/>
+    <polygon points="${dataPts}" fill="rgba(0,212,255,.12)" stroke="var(--cyan)" stroke-width="2" stroke-linejoin="round" class="radar-data"/>
     ${dots}${labels}
   </svg>`;
 }
@@ -414,7 +410,7 @@ function goToCard(idx) {
   playSound('swipe');
   animateCurrentCard();
 
-  // IQ card confetti
+  // IQ card confetti (card index 7 = 8th card)
   if (currentCard === 7) {
     setTimeout(spawnConfetti, 300);
   }
@@ -520,11 +516,11 @@ function captureAndShare() {
     <div style="font-size:16px;color:#94a3b8;font-weight:600">${ms.name}</div>
     <div class="capture-iq" style="font-size:64px;font-weight:900;color:#fbbf24">${ms.iq}</div>
     <div class="capture-tier" style="font-size:18px;font-weight:700;color:${ms.tier.color}">${ms.tier.emoji} ${ms.tier.name}</div>
-    <div class="capture-radar" style="width:280px;height:280px">${buildRadar8SVG(ms.intelligence)}</div>
+    <div class="capture-radar" style="width:280px;height:280px">${buildRadarSVG(ms)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px">
-      ${INTEL_KEYS.map(k => `<span style="font-size:11px;padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.06);color:#94a3b8">${INTEL_META[k].icon} ${INTEL_META[k].name} ${Math.round(ms.intelligence[k])}</span>`).join('')}
+      ${W_KEYS.map(k => `<span style="font-size:11px;padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.06);color:#94a3b8">${WECHSLER_META[k].icon} ${WECHSLER_META[k].name} ${ms.intelligence[k]}</span>`).join('')}
     </div>
-    <div class="capture-footer" style="font-size:12px;color:#64748b;margin-top:12px">톡IQ - 카카오톡 다중지능 분석기</div>
+    <div class="capture-footer" style="font-size:12px;color:#64748b;margin-top:12px">톡IQ - 웩슬러 기반 카카오톡 지능 분석기</div>
   `;
   target.style.left = '0';
 
@@ -604,22 +600,24 @@ function renderDeepMember(ms) {
 
     <!-- Radar -->
     <div class="deep-card">
-      <h3>🧠 다중지능 프로필</h3>
-      <div class="deep-radar">${buildRadar8SVG(s, 300)}</div>
+      <h3>🧠 인지 프로필</h3>
+      <div class="deep-radar">${buildRadarSVG(ms, 300)}</div>
     </div>
 
-    <!-- Scores -->
+    <!-- Index Scores -->
     <div class="deep-card">
-      <h3>📊 영역별 점수</h3>
+      <h3>📊 지표별 점수</h3>
       <div class="scores-grid">
-        ${INTEL_KEYS.map(k => {
-          const val = Math.round(s[k]);
+        ${W_KEYS.map(k => {
+          const val = s[k];
+          const pct = Math.round((val - 55) / 90 * 100);
+          const interp = indexInterpretation(val);
           return `
             <div class="score-row">
-              <div class="score-icon">${INTEL_META[k].icon}</div>
-              <div class="score-name">${INTEL_META[k].name}</div>
-              <div class="score-bar-track"><div class="score-bar-fill" style="width:${val}%;background:${INTEL_META[k].color}"></div></div>
-              <div class="score-val" style="color:${INTEL_META[k].color}">${val}</div>
+              <div class="score-icon">${WECHSLER_META[k].icon}</div>
+              <div class="score-name">${WECHSLER_META[k].name}</div>
+              <div class="score-bar-track"><div class="score-bar-fill" style="width:${pct}%;background:${WECHSLER_META[k].color}"></div></div>
+              <div class="score-val" style="color:${WECHSLER_META[k].color}">${val}</div>
             </div>`;
         }).join('')}
       </div>
@@ -642,7 +640,7 @@ function renderDeepMember(ms) {
         ${buildStatRow('이모지 비율', Math.round(ms.emojiRatio * 100) + '%')}
         ${buildStatRow('링크 공유', Math.round(ms.linkRatio * 100) + '%')}
         ${buildStatRow('사진/동영상', (ms.photoCount + ms.videoCount) + '건')}
-        ${buildStatRow('먼저 말걸기', Math.round(ms.firstMessageRatio * 100) + '%')}
+        ${buildStatRow('평균 응답', ms.avgResponse > 0 ? Math.round(ms.avgResponse) + '분' : '-')}
       </div>
     </div>
   `;
@@ -658,15 +656,15 @@ function buildStatRow(label, value) {
 
 function buildEvidence(ms) {
   const s = ms.intelligence;
-  const sorted = INTEL_KEYS.map(k => ({ key: k, val: s[k] })).sort((a, b) => b.val - a.val);
+  const sorted = W_KEYS.map(k => ({ key: k, val: s[k] })).sort((a, b) => b.val - a.val);
   const top = sorted[0];
   const bot = sorted[sorted.length - 1];
 
   let html = '<div class="deep-evidence">';
-  html += `<p><b>최강 영역: ${INTEL_META[top.key].icon} ${INTEL_META[top.key].name} (${Math.round(top.val)}점)</b><br>`;
+  html += `<p><b>최강 영역: ${WECHSLER_META[top.key].icon} ${WECHSLER_META[top.key].name} (${top.val})</b><br>`;
   html += getEvidenceText(top.key, ms);
   html += `</p><br>`;
-  html += `<p><b>성장 영역: ${INTEL_META[bot.key].icon} ${INTEL_META[bot.key].name} (${Math.round(bot.val)}점)</b><br>`;
+  html += `<p><b>성장 영역: ${WECHSLER_META[bot.key].icon} ${WECHSLER_META[bot.key].name} (${bot.val})</b><br>`;
   html += getEvidenceText(bot.key, ms);
   html += `</p>`;
 
@@ -684,22 +682,16 @@ function buildEvidence(ms) {
 
 function getEvidenceText(key, ms) {
   switch(key) {
-    case 'linguistic':
+    case 'vci':
       return `어휘 다양성 ${Math.round(ms.vocabDiversity * 100)}%, 평균 문장 ${ms.avgLength}자, 접속사 활용도 상위권. 복잡한 문장 구조를 자연스럽게 구사합니다.`;
-    case 'logical':
-      return `분석형 질문 ${Math.round(ms.analyticalQuestionRatio * 100)}%, 인과 표현 활발, 숫자/단위 사용이 빈번합니다. 데이터 기반 사고를 선호합니다.`;
-    case 'interpersonal':
-      return `공감 반응 점수 ${Math.round((ms.empathyResponseScore + 1) * 50)}점, 관심 질문 비율 ${Math.round(ms.interestQuestionRatio * 100)}%. 상대방의 감정에 민감하게 반응합니다.`;
-    case 'intrapersonal':
-      return `감정 세밀도 ${Math.round(ms.emotionGranularity * 100)}%, 자기 성찰 표현 빈도 높음. 야간에 더 깊은 감정 표현을 합니다.`;
-    case 'musical':
-      return `의성어/의태어 활용, ㅋ 패턴 ${ms.kkkLengthVariance}종류, 물결(~) 사용 빈도 ${Math.round(ms.tildeRatio * 100)}%. 텍스트에 리듬감을 부여합니다.`;
-    case 'spatial':
-      return `사진/동영상 ${ms.photoCount + ms.videoCount}건, 공간 묘사 단어 활용, 장소 언급 빈도 ${Math.round(ms.placeRatio * 100)}%. 시각적 표현을 선호합니다.`;
-    case 'naturalistic':
-      return `자연/날씨 관련 표현 ${Math.round(ms.natureRatio * 100)}%, 음식/건강 키워드 활발. 주변 환경에 대한 관심이 높습니다.`;
-    case 'existential':
-      return `추상적 표현 ${Math.round(ms.abstractImpressionRatio * 100)}%, 미래 지향 ${Math.round(ms.futureTenseRatio * 100)}%. 삶의 의미와 가치에 대해 깊이 생각합니다.`;
+    case 'fri':
+      return `분석형 질문 ${Math.round(ms.analyticalQuestionRatio * 100)}%, 인과 표현 활발, 숫자/단위 사용이 빈번합니다. 논리적 추론으로 정보를 처리합니다.`;
+    case 'wmi':
+      return `주제 전환 비율 ${Math.round(ms.topicDriverRatio * 100)}%, 복잡도 ${Math.round(ms.complexityPerMsg * 100)}점. 맥락을 유지하며 복잡한 대화를 처리합니다.`;
+    case 'psi':
+      return `평균 응답 ${ms.avgResponse > 0 ? Math.round(ms.avgResponse) + '분' : '-'}, 일평균 ${ms.dailyAvg}건. 빠르고 효율적으로 대화를 처리합니다.`;
+    case 'vsi':
+      return `사진/동영상 ${ms.photoCount + ms.videoCount}건, 공간 묘사 활용, 이모지 ${Math.round(ms.emojiRatio * 100)}%. 시각적 표현을 선호합니다.`;
     default: return '';
   }
 }
