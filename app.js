@@ -58,7 +58,7 @@ function handleFile(file) {
 
 // ===== Worker 통신 =====
 function startParsing(file) {
-  worker = new Worker('worker.js');
+  worker = new Worker('worker.js?v=2');
   worker.postMessage({ file });
   worker.onmessage = function(e) {
     const d = e.data;
